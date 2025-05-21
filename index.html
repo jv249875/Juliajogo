@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fairy Quest: Emerald Hunt</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+  body {
+    margin: 0;
+    background: linear-gradient(135deg, #a1c4fd, #c2e9fb);
+    font-family: 'Press Start 2P', cursive;
+    color: #222;
+    user-select: none;
+  }
+  #game-container {
+    margin: 20px auto;
+    position: relative;
+    width: 512px;
+    height: 512px;
+    background: #2b3a42;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 0 20px #00ffc3;
+  }
+  canvas {
+    display: block;
+    background: #1e272e;
+  }
+  #hud {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 20px;
+    background: #16222a;
+    color: #0fffc3;
+    font-size: 14px;
+    letter-spacing: 1px;
+  }
+  #hud .emeralds {
+    display: flex;
+    align-items: center;
+  }
+  #hud .emeralds img {
+    width: 24px;
+    height: 24px;
+    margin-right: 6px;
+  }
+  #hud .powers {
+    display: flex;
+    align-items: center;
+  }
+  #hud .power-icon {
+    width: 28px;
+    height: 28px;
+    margin-left: 8px;
+    opacity: 0.5;
+    transition: opacity 0.3s ease;
+  }
+  #hud .power-icon.active {
+    opacity: 1;
+  }
+  #message-box {
+    position: absolute;
+    bottom: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,255,195,0.9);
+    color: #1e272e;
+    padding: 10px 16px;
+    border-radius: 12px;
+    font-size: 13px;
+    min-width: 300px;
+    text-align: center;
+    display: none;
+    box-shadow: 0 0 10px #0fffc3;
+  }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <canvas id="game" width="512" height="512" tabindex="0"></canvas>
+  <div id="message-box"></div>
+  <div id="hud">
+    <div class="emeralds"><img src="https://img.icons8.com/ios-filled/50/00ffc3/emerald.png" alt="Emerald" /> <span id="emerald-count">0</span></div>
+    <div class="powers">
+      <img title="Speed Boost" id="power-speed" class="power-icon" src="https://img.icons8.com/ios-filled/50/00ffc3/fast-forward.png" alt="Speed Power" />
+      <img title="Magic Blast" id="power-magic" class="power-icon" src="https://img.icons8.com/ios-filled/50/00ffc3/magic-wand.png" alt="Magic Power" />
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  canvas.focus();
+
+  const tileSize = 32;
+  const mapRows = 16;
+  const mapCols = 16;
+
+  // Key input handling
+  const keys = {};
+  window.addEventListener('keydown', e => {
+    keys[e.key.toLowerCase()] = true;
+    // Prevent scrolling with arrow keys
+    if(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+      e.preventDefault();
+    }
+  });
+  window.addEventListener('keyup', e => {
+    keys[e.key.toLowerCase()] = false;
+  });
+
+  // Game variables
+  let currentLevel = 0;
+  const emeraldCountElem = document.getElementById('emerald-count');
+  const powerSpeedElem = document.getElementById('power-speed');
+  const powerMagicElem = document.getElementById('power-magic');
+  const messageBox = document.getElementById('message-box');
+
+  let emeraldsCollected = 0;
+  let powers = {
+    speed: false,
+    magic: false
+  };
+
+  // Maps legend
+  // 0 = empty path
+  // 1 = wall (non-walkable)
+  // 2 = emerald collectible
+  // 3 = witch (enemy)
+  // 4 = queen (boss enemy)
+  // 9 = fairy start position
+
+  // Levels map arrays
+  const levels = [
+    // Level 1: basic
+    [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,9,0,0,0,0,0,0,0,2,0,0,1,1,1,1],
+      [1,1,1,0,1,1,1,1,0,1,0,0,0,0,0,1],
+      [1,0,1,0,0,0,0,1,0,1,1,1,1,1,0,1],
+      [1,0,1,1,1,1,0,1,0,0,0,2,0,1,0,1],
+      [1,0,0,0,0,1,0,1,1,1,0,1,0,1,0,1],
+      [1,1,1,1,0,1,0,0,0,1,0,1,0,1,0,1],
+      [1,2,0,1,0,1,1,1,0,1,0,1,0,1,0,1],
+      [1,0,0,1,0,0,0,1,0,0,0,1,0,1,0,1],
+      [1,0,1,1,1,1,0,1,1,1,0,1,0,1,0,1],
+      [1,0,0,0,0,0,0,0,0,1,0,0,0,1,0,1],
+      [1,0,1,1,1,1,1,1,0,1,1,1,1,1,0,1],
+      [1,0,0,0,0,0,0,1,0,0,0,0,0,2,0,1],
+      [1,0,1,1,1,1,0,1,1,1,1,1,1,1,3,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    ],
+    // Level 2: more complex
+    [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,9,0,0,2,0,0,0,1,1,1,0,0,0,0,1],
+      [1,1,1,0,1,1,0,0,1,3,1,0,1,1,0,1],
+      [1,0,1,0,0,1,1,0,1,1,1,0,0,1,0,1],
+      [1,0,1,1,0,0,1,0,0,0,0,1,0,1,0,1],
+      [1,0,0,1,1,0,0,0,1,1,0,1,0,1,0,1],
+      [1,1,0,0,0,0,1,0,1,0,0,1,0,1,0,1],
+      [1,0,0,1,1,1,1,0,1,0,1,1,0,1,0,1],
+      [1,0,0,0,0,0,0,0,0,0,1,0,0,1,0,1],
+      [1,1,1,1,1,1,1,1,1,0,1,0,1,1,0,1],
+      [1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,1],
+      [1,0,1,1,1,1,1,0,1,1,1,0,1,0,1,1],
+      [1,0,0,0,0,0,0,0,0,0,1,0,0,0,2,1],
+      [1,3,1,1,1,1,1,1,1,0,1,1,1,1,0,1],
+      [1,0,0,0,0,0,0,0,9,0,0,0,0,0,0,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    ],
+    // Level 3: boss queen, most complex
+    [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,9,0,0,2,0,0,0,1,1,1,0,0,0,0,1],
+      [1,1,1,0,1,1,0,0,1,4,1,0,1,1,0,1],
+      [1,0,1,0,0,1,1,0,1,1,1,0,0,1,0,1],
+      [1,0,1,1,0,0,1,0,0,0,0,1,0,1,0,1],
+      [1,0,0,1,1,0,0,0,1,1,0,1,0,1,0,1],
+      [1,1,0,0,0,0,1,0,1,0,0,1,0,1,0,1],
+      [1,0,0,1,1,1,1,0,1,0,1,1,0,1,0,1],
+      [1,0,0,0,0,0,0,0,0,0,1,0,0,1,0,1],
+      [1,1,1,1,1,1,1,1,1,0,1,0,1,1,0,1],
+      [1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,1],
+      [1,0,1,1,1,1,1,0,1,1,1,0,1,0,1,1],
+      [1,0,0,0,0,0,0,0,0,0,1,0,0,0,2,1],
+      [1,4,1,1,1,1,1,1,1,0,1,1,1,1,0,1],
+      [1,0,0,0,0,0,0,0,9,0,0,0,0,0,0,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    ]
+  ];
+
+  // Sprites as simple colored shapes for simplicity
+  const colors = {
+    fairy: '#00ffc3',
+    fairyWithSpeed: '#00d1a6',
+    fairyWithMagic: '#00a67e',
+    emerald: '#00ff88',
+    wall: '#1b262c',
+    floor: '#16222a',
+    witch: '#ff0054',
+    witchAnim1: '#ff4567',
+    witchAnim2: '#ff0054',
+    queen: '#d90064',
+    queenAnim1: '#f50080',
+    queenAnim2: '#d90064'
+  };
+
+  // Game state
+  let map, fairy, witch, emeralds;
+  let enemyAnimFrame = 0;
+  let enemyAnimTimer = 0;
+  let messageTimer = 0;
+
+  // Fairy object
+  class Fairy {
+    constructor(r, c) {
+      this.r = r;
+      this.c = c;
+      this.x = c * tileSize;
+      this.y = r * tileSize;
+      this.speed = 2;
+      this.moving = false;
+      this.moveDir = null;
+      this.moveProgress = 0;
+      this.hasSpeed = false;
+      this.hasMagic = false;
+      this.canShoot = false;
+      this.blasts = [];
+    }
+    startMove(dir) {
+      if(this.moving) return;
+      let nr = this.r, nc = this.c;
+      if(dir === 'up') nr--;
+      else if(dir === 'down') nr++;
+      else if(dir === 'left') nc--;
+      else if(dir === 'right') nc++;
+      if(nr < 0 || nr >= mapRows || nc < 0 || nc >= mapCols) return;
+      if(map[nr][nc] === 1) return; // wall
+      this.moveDir = dir;
+      this.moving = true;
+      this.moveProgress = 0;
+    }
+    update() {
+      if(this.moving) {
+        this.moveProgress += this.hasSpeed ? 4 : 2;
+        if(this.moveProgress >= tileSize) {
+          // update position
+          if(this.moveDir === 'up') this.r--;
+          else if(this.moveDir === 'down') this.r++;
+          else if(this.moveDir === 'left') this.c--;
+          else if(this.moveDir === 'right') this.c++;
+          this.x = this.c * tileSize;
+          this.y = this.r * tileSize;
+          this.moving = false;
+          this.moveDir = null;
+          this.moveProgress = 0;
+          checkEmeraldCollected();
+          checkEnemyCollision();
+        } else {
+          // increment pixel position for smooth animation
+          let movePix = this.moveProgress;
+          if(this.moveDir === 'up') this.y = (this.r * tileSize) - movePix;
+          else if(this.moveDir === 'down') this.y = (this.r * tileSize) + movePix;
+          else if(this.moveDir === 'left') this.x = (this.c * tileSize) - movePix;
+          else if(this.moveDir === 'right') this.x = (this.c * tileSize) + movePix;
+        }
+      }
+      // update blasts
+      this.blasts.forEach(b => b.update());
+      this.blasts = this.blasts.filter(b => !b.destroyed);
+    }
+    draw() {
+      ctx.fillStyle = this.hasMagic ? colors.fairyWithMagic : this.hasSpeed ? colors.fairyWithSpeed : colors.fairy;
+      ctx.beginPath();
+      let centerX = this.x + tileSize/2;
+      let centerY = this.y + tileSize/2;
+      ctx.moveTo(centerX, centerY - 10);
+      ctx.lineTo(centerX - 8, centerY + 4);
+      ctx.lineTo(centerX + 8, centerY + 4);
+      ctx.closePath();
+      ctx.fill();
+      // Draw blasts
+      this.blasts.forEach(b => b.draw());
+    }
+    shoot() {
+      if(!this.hasMagic) return;
+      if(this.blasts.length >= 1) return; // limit one blast on screen
+      let dir = 'up'; // shoot upwards as default
+      if(this.moveDir) dir = this.moveDir;
+      this.blasts.push(new Blast(this.x + tileSize/2, this.y + tileSize/2, dir));
+    }
+  }
+
+  // Blast class for magic blasts
+  class Blast {
+    constructor(x, y, dir) {
+      this.x = x;
+      this.y = y;
+      this.dir = dir;
+      this.speed = 6;
+      this.radius = 6;
+      this.destroyed = false;
+    }
+    update() {
+      if(this.dir === 'up') this.y -= this.speed;
+      else if(this.dir === 'down') this.y += this.speed;
+      else if(this.dir === 'left') this.x -= this.speed;
+      else if(this.dir === 'right') this.x += this.speed;
+
+      // check boundaries
+      if(this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) {
+        this.destroyed = true;
+        return;
+      }
+
+      // check enemy collision
+      if(witch && !witch.defeated &&
+         this.x > witch.x && this.x < witch.x + tileSize &&
+         this.y > witch.y && this.y < witch.y + tileSize) {
+        // defeat the enemy
+        witch.defeated = true;
+        this.destroyed = true;
+        if(currentLevel === levels.length - 1) {
+          showMessage("You defeated the Queen! You won the game!");
+        } else {
+          showMessage("You defeated the witch! Proceed to next phase!");
+        }
+      }
+    }
+    draw() {
+      ctx.fillStyle = '#00ffc3';
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.radius, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+  }
+
+  // Enemy class (witch or queen)
+  class Witch {
+    constructor(r, c, isQueen = false) {
+      this.r = r;
+      this.c = c;
+      this.x = c * tileSize;
+      this.y = r * tileSize;
+      this.defeated = false;
+      this.isQueen = isQueen;
+    }
+    update() {
+      enemyAnimTimer++;
+      if(enemyAnimTimer > 20) {
+        enemyAnimFrame = (enemyAnimFrame + 1) % 2;
+        enemyAnimTimer = 0;
+      }
+    }
+    draw() {
+      if(this.defeated) return;
+      if(this.isQueen) {
+        ctx.fillStyle = enemyAnimFrame === 0 ? colors.queenAnim1 : colors.queenAnim2;
+        ctx.beginPath();
+        // simple crown shape for queen
+        let cx = this.x + tileSize/2;
+        let cy = this.y + tileSize/2;
+        ctx.moveTo(cx - 12, cy + 8);
+        ctx.lineTo(cx - 8, cy - 12);
+        ctx.lineTo(cx - 4, cy + 4);
+        ctx.lineTo(cx, cy - 12);
+        ctx.lineTo(cx + 4, cy + 4);
+        ctx.lineTo(cx + 8, cy - 12);
+        ctx.lineTo(cx + 12, cy + 8);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.fillStyle = enemyAnimFrame === 0 ? colors.witchAnim1 : colors.witchAnim2;
+        ctx.beginPath();
+        ctx.moveTo(this.x + tileSize/2, this.y + 6);
+        ctx.lineTo(this.x + 6, this.y + tileSize - 6);
+        ctx.lineTo(this.x + tileSize - 6, this.y + tileSize - 6);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }
+
+  // Load current level into game state
+  function loadLevel(levelIndex) {
+    if(levelIndex >= levels.length) {
+      showMessage("Congratulations! You have defeated the Queen and won!");
+      return;
+    }
+    currentLevel = levelIndex;
+    map = levels[levelIndex];
+    emeraldsCollected = 0;
+    powers = {
+      speed: false,
+      magic: false
+    };
+    updatePowersOnHUD();
+    fairy = null;
+    witch = null;
+    emeralds = [];
+
+    // locate special tiles and initialize objects
+    for(let r = 0; r < mapRows; r++) {
+      for(let c = 0; c < mapCols; c++) {
+        if(map[r][c] === 9) {
+          fairy = new Fairy(r, c);
+          map[r][c] = 0; // clear start position tile now
+        } else if(map[r][c] === 3) {
+          witch = new Witch(r, c, false);
+          map[r][c] = 0;
+        } else if(map[r][c] === 4) {
+          witch = new Witch(r, c, true);
+          map[r][c] = 0;
+        } else if(map[r][c] === 2) {
+          emeralds.push({r,c, collected:false});
+        }
+      }
+    }
+    updateEmeraldCount();
+    if(witch && witch.isQueen) {
+      showMessage("This is the Queen! Defeat her with magic blasts!");
+    } else {
+      showMessage("Collect emeralds to gain powers and defeat the witch!");
+    }
+  }
+
+  function updateEmeraldCount() {
+    emeraldCountElem.textContent = emeraldsCollected;
+  }
+
+  function updatePowersOnHUD() {
+    powerSpeedElem.classList.toggle('active', powers.speed);
+    powerMagicElem.classList.toggle('active', powers.magic);
+  }
+
+  function checkEmeraldCollected() {
+    for(let e of emeralds) {
+      if(!e.collected && e.r === fairy.r && e.c === fairy.c) {
+        e.collected = true;
+        emeraldsCollected++;
+        updateEmeraldCount();
+        gainPowerIfAny();
+        // Remove emerald from map
+        map[e.r][e.c] = 0;
+        showMessage("Emerald collected!");
+      }
+    }
+  }
+
+  function gainPowerIfAny() {
+    // Fairy gains speed power at 2 emeralds
+    if(!powers.speed && emeraldsCollected >= 2) {
+      powers.speed = true;
+      fairy.hasSpeed = true;
+      showMessage("You gained Speed Power! Move faster!");
+    }
+    // Fairy gains magic power at 4 emeralds
+    if(!powers.magic && emeraldsCollected >= 4) {
+      powers.magic = true;
+      fairy.hasMagic = true;
+      fairy.canShoot = true;
+      showMessage("You gained Magic Power! Press Space to shoot!");
+    }
+    updatePowersOnHUD();
+  }
+
+  function checkEnemyCollision() {
+    if(!witch || witch.defeated) return;
+    if(fairy.r === witch.r && fairy.c === witch.c) {
+      if(!powers.magic) {
+        showMessage("The enemy is too strong! Collect more emeralds to gain powers.");
+      }
+    }
+  }
+
+  function showMessage(text, duration=2500) {
+    messageBox.textContent = text;
+    messageBox.style.display = "block";
+    if(messageTimer) clearTimeout(messageTimer);
+    messageTimer = setTimeout(() => {
+      messageBox.style.display = "none";
+    }, duration);
+  }
+
+  function drawMap() {
+    for(let r = 0; r < mapRows; r++) {
+      for(let c = 0; c < mapCols; c++) {
+        let tile = map[r][c];
+        if(tile === 1) {
+          ctx.fillStyle = colors.wall;
+        } else {
+          ctx.fillStyle = colors.floor;
+        }
+        ctx.fillRect(c * tileSize, r * tileSize, tileSize, tileSize);
+      }
+    }
+  }
+
+  function drawEmeralds() {
+    for(let e of emeralds) {
+      if(!e.collected) {
+        ctx.fillStyle = colors.emerald;
+        ctx.beginPath();
+        let cx = e.c * tileSize + tileSize/2;
+        let cy = e.r * tileSize + tileSize/2;
+        ctx.moveTo(cx, cy - 8);
+        ctx.lineTo(cx - 6, cy);
+        ctx.lineTo(cx, cy + 8);
+        ctx.lineTo(cx + 6, cy);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }
+
+  // Game loop
+  function gameLoop() {
+    // Movement input
+    if(!fairy.moving) {
+      if(keys['arrowup'] || keys['w']) fairy.startMove('up');
+      else if(keys['arrowdown'] || keys['s']) fairy.startMove('down');
+      else if(keys['arrowleft'] || keys['a']) fairy.startMove('left');
+      else if(keys['arrowright'] || keys['d']) fairy.startMove('right');
+    }
+
+    fairy.update();
+    if(witch && !witch.defeated) witch.update();
+
+    // Check if enemy defeated to advance level
+    if(witch && witch.defeated) {
+      loadLevel(currentLevel + 1);
+    }
+
+    // Clear screen
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    drawMap();
+    drawEmeralds();
+    if(witch && !witch.defeated) witch.draw();
+    fairy.draw();
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  // Handle shooting
+  window.addEventListener('keydown', e => {
+    if(e.code === 'Space') {
+      fairy.shoot();
+      e.preventDefault();
+    }
+  });
+
+  // Start game
+  loadLevel(0);
+
+  requestAnimationFrame(gameLoop);
+})();
+</script>
+</body>
+</html>
+
